@@ -94,7 +94,7 @@ impl ExampleClient {
                             "".to_string()
                         }
                     };
-                    entity_mut.insert(WebTransportClientIo { certificate_digest });
+                    entity_mut.insert(WebTransportClientIo::from_addr(certificate_digest));
                 }
                 ClientTransports::WebSocket => {
                     add_netcode(&mut entity_mut)?;

@@ -24,13 +24,47 @@ impl Plugin for WebTransportClientPlugin {
 /// WebTransport session implementation which acts as a dedicated client,
 /// connecting to a target endpoint.
 ///
-/// The [`PeerAddr`] component will be used to find the server_addr.
+/// The connection target is described by [`WebTransportTarget`]:
+/// - [`WebTransportTarget::Url`] — connect to a full URL such as
+///   `https://example.com:5000`. Required on `wasm32-unknown-unknown`
+///   when connecting to a hostname, since browsers cannot resolve DNS
+///   into a [`SocketAddr`](core::net::SocketAddr) for [`PeerAddr`].
+/// - [`WebTransportTarget::Addr`] — derive the URL from the
+///   [`PeerAddr`] component as `https://<addr>`.
 ///
 /// Use [`WebTransportClient::connect`] to start a connection.
 #[derive(Debug, Component)]
 #[require(Link)]
 pub struct WebTransportClientIo {
     pub certificate_digest: String,
+    pub target: WebTransportTarget,
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum WebTransportTarget {
+    /// Connect using a full URL (e.g., `https://example.com:5000`).
+    Url(String),
+    /// Construct URL from the [`PeerAddr`] component as `https://<addr>`.
+    #[default]
+    Addr,
+}
+
+impl WebTransportClientIo {
+    /// Connect to a full URL (e.g., `https://example.com:5000`).
+    pub fn from_url(certificate_digest: String, url: impl Into<String>) -> Self {
+        Self {
+            certificate_digest,
+            target: WebTransportTarget::Url(url.into()),
+        }
+    }
+
+    /// Construct URL from the [`PeerAddr`] component as `https://<addr>`.
+    pub fn from_addr(certificate_digest: String) -> Self {
+        Self {
+            certificate_digest,
+            target: WebTransportTarget::Addr,
+        }
+    }
 }
 
 impl WebTransportClientPlugin {
@@ -43,11 +77,16 @@ impl WebTransportClientPlugin {
         mut commands: Commands,
     ) -> Result {
         if let Ok((entity, client, peer_addr)) = query.get(trigger.entity) {
-            let server_addr = peer_addr.ok_or(WebTransportError::PeerAddrMissing)?.0;
+            let server_url = match &client.target {
+                WebTransportTarget::Url(url) => url.clone(),
+                WebTransportTarget::Addr => {
+                    let server_addr = peer_addr.ok_or(WebTransportError::PeerAddrMissing)?.0;
+                    format!("https://{server_addr}")
+                }
+            };
             let digest = client.certificate_digest.clone();
             commands.queue(move |world: &mut World| -> Result {
                 let config = Self::client_config(digest)?;
-                let server_url = format!("https://{server_addr}");
                 let target = {
                     #[cfg(target_family = "wasm")]
                     {
